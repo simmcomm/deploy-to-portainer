@@ -1,0 +1,63 @@
+name: Deploy to Portainer
+
+inputs:
+  registry:
+    description: Docker registry to use
+    required: false
+    default: ghcr.io
+  username:
+    description: Registry username
+    required: false
+    default: ${{ github.actor }}
+  password:
+    description: Registry password
+    required: false
+  dockerfile:
+    description: Build dockerfile
+    required: false
+    default: Dockerfile
+  build_args:
+    description: List of build args to pass with --build-arg
+    required: false
+  image_name:
+    description: Image name without tag
+  tags:
+    description: Comma separated list of tags
+    required: false
+  deploy_hook:
+    description: Portainer deploy hook
+    required: true
+
+
+runs:
+  using: composite
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Login to docker
+      if: ${{ inputs.password }}
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+
+    - name: Build image
+      shell: bash
+      run: |
+        BUILD_ARGS=""
+        if [ ! -z "${{ inputs.build_args }}" ]; then
+          BUILD_ARGS=$(echo -n "${{ inputs.build_args }}" | xargs -d',' -I{} echo --build-arg {})
+        fi
+        docker build -f ${{ inputs.dockerfile }} $BUILD_ARGS -t ${{ inputs.registry }}/${{ inputs.image_name }} .
+        echo -n ${{ inputs.tags }} | xargs -d',' -I{} docker tag ${{ inputs.registry }}/${{ inputs.image_name }} ${{ inputs.registry }}/${{ inputs.image_name }}:{} 
+
+    - name: Push image
+      shell: bash
+      run: docker push --all-tags ${{ inputs.registry }}/${{ inputs.image_name }}
+
+    - name: Trigger deploy hook
+      shell: bash
+      run: curl -v -X POST ${{ inputs.deploy_hook }}
